@@ -8,13 +8,22 @@ A web-based visualization tool for flight log data.
 - **Compare Mode**: Compare two flight paths simultaneously.
 - **Speed Control**: Variable playback speeds (0.2x to 10x).
 
-## Setup
+## Installation
 
-1.  Start the Python backend:
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/metehanyurdunusvn/DataVisualization.git
+    cd DataVisualization
+    ```
+
+## Usage
+
+1.  **Start the Backend:**
     ```bash
     python log_viewer.py
     ```
-2.  Open your browser at `http://localhost:9999`
+2.  **View in Browser:**
+    Open `http://localhost:9999`
 
 ## Structure
 - `log_viewer.py`: Python-based HTTP server and API.
