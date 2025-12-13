@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Log Viewer | Çelebi</title>
+
+    <!-- Google Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+
+    <!-- CesiumJS -->
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.110/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.110/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
+    <!-- Overlay 3D specific overrides -->
+    <style>
+        #cesiumContainer {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            /* Below HUD elements */
+        }
+
+        /* Adjust HUD z-index to be above Cesium */
+        .sidebar,
+        .hud-panel {
+            z-index: 100;
+        }
+
+        /* Cesium Widget Overrides to look cleaner */
+        .cesium-viewer-bottom {
+            display: none !important;
+            /* Hide credit for cleaner look (dev only - respecting license in prod requires credit) */
+        }
+
+        .cesium-viewer-timelineContainer {
+            bottom: 0px !important;
+            left: 0 !important;
+            right: 0 !important;
+            width: 100% !important;
+            height: 30px !important;
+            z-index: 90 !important;
+            /* Above map, below HUD */
+            background: rgba(14, 18, 26, 0.9) !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .cesium-viewer-animationContainer {
+            display: none !important;
+            /* We use custom controls or just timeline */
+        }
+
+        /* Playback controls location adjustment since we might hide default animation container */
+        .bottom-center {
+            bottom: 40px;
+            /* Make space for Cesium timeline if used */
+        }
+    </style>
+
+    <!-- Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar: Plane Selector -->
+        <aside class="sidebar">
+            <div class="brand">
+                <i class="ph ph-cube"></i>
+                <span>Çelebi 3D Viewer</span>
+            </div>
+            <div class="search-box">
+                <button id="btn-2d-mode" class="btn-icon active" title="Switch to 2D Mode"
+                    style="width: 100%; justify-content: center; margin-bottom: 10px;">
+                    <i class="ph ph-map-trifold"></i>
+                    <span>Switch to 2D Map</span>
+                </button>
+                <button id="btn-compare-mode" class="btn-icon" title="Toggle Compare Mode"
+                    style="width: 100%; justify-content: center;">
+                    <i class="ph ph-arrows-left-right"></i>
+                    <span>Compare</span>
+                </button>
+            </div>
+            <div class="id-list" id="plane-list">
+                <!-- Items injected by JS -->
+                <div class="loading-spinner"></div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-view">
+            <!-- Cesium Container -->
+            <div id="cesiumContainer"></div>
+
+            <!-- Secondary HUD (Top Left) - Hidden by default -->
+            <div class="hud-panel top-left glass hidden" id="hud-secondary">
+                <div class="hud-header" style="justify-content: space-between;">
+                    <span id="sec-plane-label" style="color: #ffd700;">SECONDARY</span>
+                    <button class="btn-icon small" id="btn-swap-planes" title="Switch with Primary">
+                        <i class="ph ph-arrows-left-right"></i>
+                    </button>
+                </div>
+                <div class="hud-grid">
+                    <div class="hud-item">
+                        <span class="label">ALT</span>
+                        <span class="value" id="sec-alt">--</span>
+                    </div>
+                    <div class="hud-item">
+                        <span class="label">SPD</span>
+                        <span class="value" id="sec-speed">--</span>
+                    </div>
+                    <div class="hud-item wide">
+                        <span class="label">DST</span> <!-- Distance to primary -->
+                        <span class="value-sm" id="sec-dist">-- m</span>
+                    </div>
+                    <div class="hud-item wide checkbox-row">
+                        <label class="checkbox-container small">
+                            <input type="checkbox" id="chk-sec-path" checked>
+                            <span class="checkmark"></span>
+                            Show Path
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- HUD Overlay: Telemetry -->
+            <div class="hud-panel top-right glass">
+                <div class="hud-header">
+                    <span id="active-plane-label">NO SELECTION</span>
+                    <span class="live-badge">3D REPLAY</span>
+                </div>
+                <div class="hud-grid">
+                    <div class="hud-item">
+                        <span class="label">ALTITUDE</span>
+                        <span class="value" id="val-alt">--</span>
+                        <span class="unit">m</span>
+                    </div>
+                    <div class="hud-item">
+                        <span class="label">SPEED</span>
+                        <span class="value" id="val-speed">--</span>
+                        <span class="unit">m/s</span>
+                    </div>
+                    <div class="hud-item">
+                        <span class="label">HEADING</span>
+                        <span class="value" id="val-heading">--</span>
+                        <span class="unit">deg</span>
+                    </div>
+                    <div class="hud-item">
+                        <span class="label">PITCH / ROLL</span>
+                        <span class="value-sm" id="val-pitch-roll">-- / --</span>
+                    </div>
+                    <div class="hud-item wide">
+                        <span class="label">LAT / LON</span>
+                        <span class="value-sm" id="val-latlon">-- / --</span>
+                    </div>
+                    <div class="hud-item wide">
+                        <span class="label">TIMESTAMP</span>
+                        <span class="value-sm" id="val-time">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Note: We are using Cesium's Timeline, but we can overlay our custom play/pause if needed. 
+                 For now, let's trust Cesium's built-in timeline logic but maybe simple play/pause button here. -->
+            <div class="hud-panel bottom-center glass" style="margin-bottom: 30px;">
+                <div class="controls-row">
+                    <div class="speed-controls" style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 0.8rem; color: var(--text-muted); width: 40px;"
+                            id="speed-val">1.0x</span>
+                        <input type="range" id="speed-slider" min="0.1" max="10" step="0.1" value="1"
+                            style="width: 100px;">
+                    </div>
+                    <div class="playback-controls">
+                        <button class="btn-round" id="btn-play-pause">
+                            <i class="ph-fill ph-play" id="icon-play"></i>
+                            <i class="ph-fill ph-pause hidden" id="icon-pause"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app3d.js"></script>
+</body>
+
+</html>

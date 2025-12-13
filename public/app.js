@@ -2,6 +2,8 @@
 let map;
 let marker;
 let polyline;
+let qrMarker;
+let boundaryLayer;
 let planeIcon;
 let currentPlaneId = null;
 let flightData = [];
@@ -29,29 +31,142 @@ const els = {
     chkFullPath: document.getElementById('chk-full-path')
 };
 
-const TRAIL_LENGTH = 50; // Number of points to keep in tail
+const TRAIL_LENGTH = 50;
 
-// Initialize Map
+// --- Initialization ---
+
 function initMap() {
-    // Default to approximate location from logs until data loads
     map = L.map('map').setView([40.20, 25.88], 13);
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.instagram.com/metehanysv/">metereis</a>',
-        subdomains: 'abcd',
+    // Google Satellite Hybrid layer
+    L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        attribution: 'Map data ©2025 Google',
         maxZoom: 20
     }).addTo(map);
 
-    // Custom Icon (Red Plane)
+    updatePlaneIcon();
+    addStaticLayers();
+    initSettingsUI();
+}
+
+function updatePlaneIcon() {
+    const color = appSettings.get('primaryPlaneColor');
     planeIcon = L.divIcon({
-        html: '<i class="ph ph-airplane-tilt" style="font-size: 24px; color: #ff0000; transform: rotate(0deg); display:block; filter: drop-shadow(0 0 5px rgba(255,0,0,0.5));"></i>',
+        html: `<i class="ph ph-airplane-tilt" style="font-size: 24px; color: ${color}; transform: rotate(0deg); display:block; filter: drop-shadow(0 0 5px ${color}80);"></i>`,
         className: 'plane-marker-icon',
         iconSize: [24, 24],
         iconAnchor: [12, 12]
     });
+    if (marker) marker.setIcon(planeIcon);
 }
 
-// Fetch ID List
+function initSettingsUI() {
+    const modal = document.getElementById('settings-modal');
+    const btnParams = [
+        { id: 'btn-settings', action: 'open' },
+        { id: 'btn-close-settings', action: 'close' }
+    ];
+
+    btnParams.forEach(p => {
+        const el = document.getElementById(p.id);
+        if (el) el.addEventListener('click', () => {
+            if (p.action === 'open') {
+                loadSettingsToUI();
+                modal.classList.remove('hidden');
+            } else {
+                modal.classList.add('hidden');
+            }
+        });
+    });
+
+    // Binding Inputs
+    const bindings = [
+        { id: 'set-primary-color', key: 'primaryPlaneColor' },
+        { id: 'set-secondary-color', key: 'secondaryPlaneColor' },
+        { id: 'set-primary-path-color', key: 'primaryPathColor' },
+        { id: 'set-secondary-path-color', key: 'secondaryPathColor' },
+        { id: 'set-boundary-color', key: 'boundaryColor' },
+        { id: 'set-fill-color', key: 'boundaryFillColor' },
+        { id: 'set-fill-opacity', key: 'boundaryFillOpacity' }
+    ];
+
+    bindings.forEach(b => {
+        const el = document.getElementById(b.id);
+        if (el) {
+            el.addEventListener('input', (e) => {
+                const val = e.target.value;
+                appSettings.saveSettings({ [b.key]: val });
+                refreshVisuals();
+            });
+        }
+    });
+
+    document.getElementById('btn-reset-settings').addEventListener('click', () => {
+        appSettings.saveSettings(appSettings.defaults);
+        loadSettingsToUI();
+        refreshVisuals();
+    });
+}
+
+function loadSettingsToUI() {
+    document.getElementById('set-primary-color').value = appSettings.get('primaryPlaneColor');
+    document.getElementById('set-secondary-color').value = appSettings.get('secondaryPlaneColor');
+    document.getElementById('set-primary-path-color').value = appSettings.get('primaryPathColor');
+    document.getElementById('set-secondary-path-color').value = appSettings.get('secondaryPathColor');
+    document.getElementById('set-boundary-color').value = appSettings.get('boundaryColor');
+    document.getElementById('set-fill-color').value = appSettings.get('boundaryFillColor');
+    document.getElementById('set-fill-opacity').value = appSettings.get('boundaryFillOpacity');
+}
+
+function refreshVisuals() {
+    updatePlaneIcon();
+    initSecondaryVisuals();
+    if (markerSec) markerSec.setIcon(planeIconSec);
+
+    if (polyline) polyline.setStyle({ color: appSettings.get('primaryPathColor') });
+    if (polylineSec) polylineSec.setStyle({ color: appSettings.get('secondaryPathColor') });
+
+    addStaticLayers();
+}
+
+function addStaticLayers() {
+    // QR Code Marker
+    const qrCoords = [40.20323, 25.88129];
+    const qrIcon = L.divIcon({
+        html: '<img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=CelebiLogViewer" style="width: 100%; height: 100%; display: block;">',
+        className: 'qr-marker-icon',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+    });
+
+    if (qrMarker) map.removeLayer(qrMarker);
+    qrMarker = L.marker(qrCoords, {
+        icon: qrIcon,
+        title: "QR Location",
+        zIndexOffset: 1
+    }).addTo(map);
+
+    // Competition Boundary
+    const boundaryCoords = [
+        [40.19891, 25.88131],
+        [40.20009, 25.87654],
+        [40.20727, 25.87931],
+        [40.20612, 25.88425]
+    ];
+
+    if (boundaryLayer) map.removeLayer(boundaryLayer);
+
+    boundaryLayer = L.polygon(boundaryCoords, {
+        color: appSettings.get('boundaryColor'),
+        weight: 2,
+        fillColor: appSettings.get('boundaryFillColor'),
+        fillOpacity: parseFloat(appSettings.get('boundaryFillOpacity')),
+        dashArray: '5, 5'
+    }).addTo(map);
+}
+
+// --- Data Fetching ---
+
 async function fetchIds() {
     try {
         const res = await fetch('/api/ids');
@@ -82,11 +197,12 @@ function renderIdList(ids) {
     });
 }
 
-// Load Data for selected Plane
+// --- Data Loading ---
+
 async function loadPlaneData(id, domItem) {
     if (currentPlaneId === id) return;
 
-    // UI Updates
+    // Active UI State
     document.querySelectorAll('.id-item').forEach(el => el.classList.remove('active'));
     domItem.classList.add('active');
 
@@ -99,10 +215,6 @@ async function loadPlaneData(id, domItem) {
         const res = await fetch(`/api/data/${id}`);
         const data = await res.json();
 
-        // Pre-process timestamps?
-        // Data format: { lat, lon, alt, heading, ... timestamp: "YYYY-MM-DD HH:MM:SS,ms" }
-        // We will just use index-based playback for simplicity and robustness first
-
         flightData = data;
         currentIndex = 0;
 
@@ -111,26 +223,22 @@ async function loadPlaneData(id, domItem) {
         els.timeline.value = 0;
         els.frameTotal.innerText = flightData.length;
 
-        // Init Map Visuals
+        // Reset Map Visuals
         if (polyline) map.removeLayer(polyline);
         if (marker) map.removeLayer(marker);
 
-        // Create path layer (initialized empty/full handled in updateFrame)
-        polyline = L.polyline([], { // Start empty
-            color: '#00f2ff', // Cyan/Blue path
+        polyline = L.polyline([], {
+            color: appSettings.get('primaryPathColor'),
             weight: 3,
             opacity: 0.8
         }).addTo(map);
 
-        // Fit bounds
         const allPoints = flightData.map(d => [d.lat, d.lon]);
         if (allPoints.length > 0) {
             map.fitBounds(L.polyline(allPoints).getBounds());
-            // Create Marker
             marker = L.marker(allPoints[0], { icon: planeIcon }).addTo(map);
         }
 
-        // Render first frame
         updateFrame(0);
 
     } catch (err) {
@@ -138,55 +246,37 @@ async function loadPlaneData(id, domItem) {
     }
 }
 
-// State to track rendering optimization
 let isFullPathRendered = false;
 
-// Update UI and Map for a specific frame index
 function updateFrame(index) {
     if (!flightData[index]) return;
 
     const d = flightData[index];
     const latlng = [d.lat, d.lon];
 
-    // Update Marker
     marker.setLatLng(latlng);
 
-    // Update Marker
-    marker.setLatLng(latlng);
-
-    // Update Trail/Path
+    // Path Rendering Optimization
     if (els.chkFullPath.checked) {
-        // Optimization: Only render full path once if not already rendered
         if (!isFullPathRendered) {
             const fullPath = flightData.map(d => [d.lat, d.lon]);
             polyline.setLatLngs(fullPath);
             isFullPathRendered = true;
         }
     } else {
-        // Show Trail (Last N points)
-        isFullPathRendered = false; // Reset optimization flag
+        isFullPathRendered = false;
         const start = Math.max(0, index - TRAIL_LENGTH);
         const trailData = flightData.slice(start, index + 1);
         const trailLatLngs = trailData.map(d => [d.lat, d.lon]);
         polyline.setLatLngs(trailLatLngs);
     }
 
-    // Rotate Icon (Need to manipulate the HTML inside the divIcon)
-    // Note: This is a hacky way to rotate divIcons. Better to use a library or CSS rotate.
-    // We'll update the innerHTML with new rotation
-    const rotation = d.heading - 45; // -45 because the icon itself might be tilted. Adjust as needed.
-    // Actually standard plane icon is usually 45deg or 0deg. 
-    // Let's assume icon points UP (0deg) by default? Phosphor airplane-tilt points NE (45deg).
-    // So if heading is 90 (East), we need to rotate 45 deg.
-    // Heading 0 (North) -> Rotate -45 deg.
-    const cssRotation = d.heading - 45;
-
+    // Rotate Icon based on Heading
+    const cssRotation = d.heading - 45; // Adjust for Phosphor icon initial correct orientation
     const iconEl = marker.getElement();
     if (iconEl) {
         const iTag = iconEl.querySelector('i');
-        if (iTag) {
-            iTag.style.transform = `rotate(${cssRotation}deg)`;
-        }
+        if (iTag) iTag.style.transform = `rotate(${cssRotation}deg)`;
     }
 
     // Update HUD
@@ -200,35 +290,22 @@ function updateFrame(index) {
     els.frameIdx.innerText = index;
     els.timeline.value = index;
 
-    // --- SECONDARY PLANE SYNC ---
+    // secondary sync
     if (secondaryPlaneId && flightDataSec.length > 0) {
-        // Simple approximate sync by formatted string match is crude but works if samplings align
-        // Better: Parse and find closest.
-        // Optimization: Assume sorted. Find closest index.
-        // For now, let's just find exact match or closest.
         const targetTime = d.timestamp;
-
-        // Find closest point in flightDataSec
         const secIndex = flightDataSec.findIndex(s => s.timestamp === targetTime);
         const bestSec = flightDataSec[secIndex];
-
-        // If exact match not found, what to do?
-        // Maybe log files are different rate?
-        // Let's update HUD if found
 
         if (bestSec) {
             const secLL = [bestSec.lat, bestSec.lon];
             markerSec.setLatLng(secLL);
 
-            // Update Sec HUD
             document.getElementById('sec-alt').innerText = bestSec.alt.toFixed(1);
             document.getElementById('sec-speed').innerText = bestSec.speed.toFixed(1);
 
-            // Calc Distance
             const dist = map.distance(latlng, secLL);
             document.getElementById('sec-dist').innerText = dist.toFixed(0) + ' m';
 
-            // Update Sec Path (Trail)
             if (polylineSec && document.getElementById('chk-sec-path').checked) {
                 const start = Math.max(0, secIndex - TRAIL_LENGTH);
                 const trailData = flightDataSec.slice(start, secIndex + 1);
@@ -236,7 +313,6 @@ function updateFrame(index) {
                 polylineSec.setLatLngs(trailLatLngs);
             }
 
-            // Rotate Sec Icon
             const rotSec = bestSec.heading - 45;
             const iconElSec = markerSec.getElement();
             if (iconElSec) {
@@ -250,25 +326,31 @@ function updateFrame(index) {
     }
 }
 
-// Playback Logic
+// --- Playback Logic ---
+
 function play() {
     if (isPlaying) return;
     isPlaying = true;
-    els.iconPlay.classList.add('hidden');
-    els.iconPause.classList.remove('hidden');
-
     lastTime = performance.now();
     accumTime = 0;
-
-    // Use a wrapper to ensure timestamp is valid
     animationFrameId = requestAnimationFrame((ts) => loop(ts));
+    updatePlayIcon();
 }
 
 function pause() {
     isPlaying = false;
-    els.iconPlay.classList.remove('hidden');
-    els.iconPause.classList.add('hidden');
     cancelAnimationFrame(animationFrameId);
+    updatePlayIcon();
+}
+
+function updatePlayIcon() {
+    if (isPlaying) {
+        els.iconPlay.classList.add('hidden');
+        els.iconPause.classList.remove('hidden');
+    } else {
+        els.iconPlay.classList.remove('hidden');
+        els.iconPause.classList.add('hidden');
+    }
 }
 
 function togglePlay() {
@@ -282,53 +364,33 @@ let accumTime = 0;
 function loop(timestamp) {
     if (!isPlaying) return;
 
-    // Throttling to simulate speed
-    // Assumption: Data is roughly 10-50Hz. 
-    // Let's just advance X frames per animation frame based on speed
-
-    // Simple approach: 1 frame per tick * speed
-    // If speed is 1x, we update 1 data point per requestAnimationFrame?
-    // 60fps * 1 = 60 data points per second.
-    // Real log seems to be ~4 points per second (250ms gap). 
-    // So 1x speed should be much slower than 60fps.
-    // We need a timer.
-
     if (!lastTime) lastTime = timestamp;
     const dt = timestamp - lastTime;
     lastTime = timestamp;
 
-    // Target: 10 data points per second (approx) for 1x?
-    // Let's trust the timestamp diffs normally, but here we ignore real timestamps for simplicity unless requested.
-    // Let's say 1x = 10 samples/sec.
     const samplesPerSecond = 10 * playbackSpeed;
     const msPerSample = 1000 / samplesPerSecond;
 
     accumTime += dt;
 
     if (accumTime > msPerSample) {
-        // Advance frame
         const framesToAdvance = Math.floor(accumTime / msPerSample);
         accumTime -= framesToAdvance * msPerSample;
 
         currentIndex += framesToAdvance;
 
         if (currentIndex >= flightData.length) {
-            currentIndex = 0; // Loop or stop? Let's loop
-            // or pause
-            // pause();
-            // currentIndex = flightData.length - 1;
+            currentIndex = 0;
         }
 
         updateFrame(currentIndex);
     }
 
-    // Auto follow?
-    // map.panTo(marker.getLatLng()); // Can get dizzying. Maybe optional.
-
     animationFrameId = requestAnimationFrame(loop);
 }
 
-// Event Listeners
+// --- Event Listeners ---
+
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
     fetchIds();
@@ -336,20 +398,21 @@ document.addEventListener('DOMContentLoaded', () => {
     els.btnPlayPause.addEventListener('click', togglePlay);
 
     els.timeline.addEventListener('input', (e) => {
-        pause(); // Pause while scrubbing
+        pause();
         currentIndex = parseInt(e.target.value);
         updateFrame(currentIndex);
     });
 
-    document.querySelectorAll('.btn-icon[data-speed]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.btn-icon').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            playbackSpeed = parseFloat(btn.dataset.speed);
-        });
-    });
+    const speedSlider = document.getElementById('speed-slider');
+    const speedVal = document.getElementById('speed-val');
 
-    // Search Filter
+    if (speedSlider && speedVal) {
+        speedSlider.addEventListener('input', (e) => {
+            playbackSpeed = parseFloat(e.target.value);
+            speedVal.innerText = playbackSpeed.toFixed(1) + 'x';
+        });
+    }
+
     document.getElementById('id-filter').addEventListener('input', (e) => {
         const term = e.target.value.toLowerCase();
         document.querySelectorAll('.id-item').forEach(item => {
@@ -358,18 +421,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Checkbox Listener
     if (els.chkFullPath) {
         els.chkFullPath.addEventListener('change', () => {
-            // Force update regardless of play state
-            isFullPathRendered = false; // Force re-render logic
+            isFullPathRendered = false;
             if (flightData && flightData.length > 0) {
                 updateFrame(currentIndex);
             }
         });
     }
 
-    // Compare Mode Toggle
     const btnCompare = document.getElementById('btn-compare-mode');
     if (btnCompare) {
         btnCompare.addEventListener('click', () => {
@@ -377,7 +437,6 @@ document.addEventListener('DOMContentLoaded', () => {
             btnCompare.classList.toggle('active', isCompareMode);
 
             if (!isCompareMode) {
-                // Disable mode: clear secondary
                 secondaryPlaneId = null;
                 clearSecondaryVisuals();
                 document.getElementById('hud-secondary').classList.add('hidden');
@@ -387,7 +446,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initSecondaryVisuals();
 
-    // Sec Path Checkbox
     const chkSecPath = document.getElementById('chk-sec-path');
     if (chkSecPath) {
         chkSecPath.addEventListener('change', () => {
@@ -402,7 +460,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-/* Compare Mode Logic */
+// --- Compare Mode Logic ---
+
 let isCompareMode = false;
 let secondaryPlaneId = null;
 let flightDataSec = [];
@@ -411,9 +470,9 @@ let markerSec;
 let planeIconSec;
 
 function initSecondaryVisuals() {
-    // Custom Icon (Navy Plane)
+    const color = appSettings.get('secondaryPlaneColor');
     planeIconSec = L.divIcon({
-        html: '<i class="ph ph-airplane-tilt" style="font-size: 24px; color: #000080; transform: rotate(0deg); display:block; filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.8));"></i>',
+        html: `<i class="ph ph-airplane-tilt" style="font-size: 24px; color: ${color}; transform: rotate(0deg); display:block; filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.8));"></i>`,
         className: 'plane-marker-icon-sec',
         iconSize: [24, 24],
         iconAnchor: [12, 12]
@@ -428,10 +487,9 @@ function clearSecondaryVisuals() {
 }
 
 async function loadSecondaryPlane(id, domItem) {
-    if (secondaryPlaneId === id) return; // Already selected
+    if (secondaryPlaneId === id) return;
     secondaryPlaneId = id;
 
-    // UI Updates
     document.querySelectorAll('.id-item').forEach(el => el.classList.remove('active-sec'));
     domItem.classList.add('active-sec');
     document.getElementById('hud-secondary').classList.remove('hidden');
@@ -442,19 +500,16 @@ async function loadSecondaryPlane(id, domItem) {
         const data = await res.json();
         flightDataSec = data;
 
-        // Visuals
         if (polylineSec) map.removeLayer(polylineSec);
         if (markerSec) map.removeLayer(markerSec);
 
-        // Path (Green) - Initialize empty for trail
         polylineSec = L.polyline([], {
-            color: '#00ff00',
+            color: appSettings.get('secondaryPathColor'),
             weight: 3,
             opacity: 0.8,
-            dashArray: '5, 10' // Dashed for secondary
+            dashArray: '5, 10'
         });
 
-        // Only add if checked
         if (document.getElementById('chk-sec-path') && document.getElementById('chk-sec-path').checked) {
             polylineSec.addTo(map);
         }
@@ -462,11 +517,8 @@ async function loadSecondaryPlane(id, domItem) {
         if (flightDataSec.length > 0) {
             const startPt = [flightDataSec[0].lat, flightDataSec[0].lon];
             markerSec = L.marker(startPt, { icon: planeIconSec }).addTo(map);
-
-            // Zoom to include both? Optional.
         }
 
-        // Immediate update to sync with current primary time
         updateFrame(currentIndex);
 
     } catch (err) {

@@ -43,6 +43,15 @@
                     <i class="ph ph-arrows-left-right"></i>
                     <span>Compare</span>
                 </button>
+                <button id="btn-3d-mode" class="btn-icon" title="Switch to 3D Mode"
+                    onclick="window.location.href='viewer3d.html'">
+                    <i class="ph ph-cube"></i>
+                    <span>3D View</span>
+                </button>
+                <button id="btn-settings" class="btn-icon" title="Settings">
+                    <i class="ph ph-gear"></i>
+                    <span>Settings</span>
+                </button>
             </div>
             <div class="id-list" id="plane-list">
                 <!-- Items injected by JS -->
@@ -54,6 +63,49 @@
         <main class="main-view">
             <!-- Map Container -->
             <div id="map"></div>
+
+            <!-- Settings Modal -->
+            <div id="settings-modal" class="modal-overlay hidden">
+                <div class="modal-content glass">
+                    <div class="modal-header">
+                        <h2>Settings</h2>
+                        <button id="btn-close-settings" class="btn-icon"><i class="ph ph-x"></i></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="setting-group">
+                            <label>Primary Plane Color</label>
+                            <input type="color" id="set-primary-color" value="#ff0000">
+                        </div>
+                        <div class="setting-group">
+                            <label>Secondary Plane Color</label>
+                            <input type="color" id="set-secondary-color" value="#faa200">
+                        </div>
+                        <div class="setting-group">
+                            <label>Primary Path Color</label>
+                            <input type="color" id="set-primary-path-color" value="#00f2ff">
+                        </div>
+                        <div class="setting-group">
+                            <label>Secondary Path Color</label>
+                            <input type="color" id="set-secondary-path-color" value="#00ff00">
+                        </div>
+                        <div class="setting-group">
+                            <label>Boundary Line Color</label>
+                            <input type="color" id="set-boundary-color" value="#ff0000">
+                        </div>
+                        <div class="setting-group">
+                            <label>Boundary Fill Color</label>
+                            <input type="color" id="set-fill-color" value="#3700ff">
+                        </div>
+                        <div class="setting-group">
+                            <label>Boundary Opacity</label>
+                            <input type="range" id="set-fill-opacity" min="0" max="1" step="0.1" value="0.2">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button id="btn-reset-settings" class="btn-text">Reset Defaults</button>
+                    </div>
+                </div>
+            </div>
 
             <!-- Secondary HUD (Top Left) - Hidden by default -->
             <div class="hud-panel top-left glass hidden" id="hud-secondary">
@@ -134,18 +186,16 @@
                             Show Full Path
                         </label>
                     </div>
-                    <div class="speed-controls">
-                        <button class="btn-icon" data-speed="0.2">0.2x</button>
-                        <button class="btn-icon" data-speed="0.5">0.5x</button>
-                        <button class="btn-icon active" data-speed="1">1x</button>
-                        <button class="btn-icon" data-speed="2">2x</button>
-                        <button class="btn-icon" data-speed="5">5x</button>
-                        <button class="btn-icon" data-speed="10">10x</button>
+                    <div class="speed-controls" style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 0.8rem; color: var(--text-muted); width: 40px;"
+                            id="speed-val">1.0x</span>
+                        <input type="range" id="speed-slider" min="0.1" max="10" step="0.1" value="1"
+                            style="width: 100px;">
                     </div>
                     <div class="playback-controls">
                         <button class="btn-round" id="btn-play-pause">
-                            <i class="ph ph-play-fill" id="icon-play"></i>
-                            <i class="ph ph-pause-fill hidden" id="icon-pause"></i>
+                            <i class="ph-fill ph-play" id="icon-play"></i>
+                            <i class="ph-fill ph-pause hidden" id="icon-pause"></i>
                         </button>
                     </div>
                     <div class="index-display">
@@ -156,6 +206,7 @@
         </main>
     </div>
 
+    <script src="settings.js"></script>
     <script src="app.js"></script>
 </body>
 

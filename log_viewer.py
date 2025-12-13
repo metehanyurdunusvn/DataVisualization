@@ -13,12 +13,11 @@ DATA_FILE = 'cleaned_data.json'
 PUBLIC_DIR = 'public'
 
 # Global Data Store
-# Structure: { plane_id (int): [ { timestamp, lat, lon, alt, ... } ] }
 PLANE_DATA = {}
 
 def load_and_process_data():
     global PLANE_DATA
-    print("Loading data... this may take a moment.")
+    print("Loading data...")
     
     try:
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
@@ -39,18 +38,9 @@ def load_and_process_data():
 
         if not ts_str or not data:
             continue
-            
-        # Parse timestamp safely
-        # Format example: "2025-09-02 08:17:50,493"
-        try:
-            # Simple string storage is enough for frontend sorting usually, 
-            # but let's keep it as string for JSON serialization.
-            pass 
-        except Exception:
-            continue
 
         if typ == 'REQ' and isinstance(data, dict):
-            # Main plane telemetry
+            # Main Telemetry
             tid = data.get('takim_numarasi')
             if tid is not None:
                 if tid not in PLANE_DATA:
@@ -69,7 +59,7 @@ def load_and_process_data():
                 })
 
         elif typ == 'RESP' and isinstance(data, dict):
-            # Other planes in range
+            # Other Planes
             konum_list = data.get('konumBilgileri')
             if isinstance(konum_list, list):
                 for k in konum_list:
@@ -86,12 +76,10 @@ def load_and_process_data():
                             'heading': k.get('iha_yonelme'),
                             'roll': k.get('iha_yatis'),
                             'pitch': k.get('iha_dikilme'),
-                            'speed': k.get('iha_hizi'), # Note: 'iha_hizi' vs 'iha_hiz' pattern
-                            # Battery usually not in RESP
+                            'speed': k.get('iha_hizi')
                         })
 
     print("Sorting data...")
-    # Sort each plane's data by timestamp
     for tid in PLANE_DATA:
         PLANE_DATA[tid].sort(key=lambda x: x['timestamp'])
 
@@ -122,30 +110,28 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(400, "Invalid ID format")
             return
 
-        # Serve Static Files
-        # Redirect root to index.html
+        # Static Files
         if self.path == '/' or self.path == '':
             self.path = '/public/index.html'
         
-        # Allow serving from public directory directly if requested or implied
-        # If path doesn't start with /public, and isn't an API, try to find it in public
         if not self.path.startswith('/public/') and not self.path.startswith('/api/'):
              self.path = '/public' + self.path
 
         return http.server.SimpleHTTPRequestHandler.do_GET(self)
 
 def run_server():
-    # Change dir to script directory to ensure relative paths work
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    
-    # Load data first
     load_and_process_data()
 
-    # Start Server
     with socketserver.TCPServer(("", PORT), CustomHandler) as httpd:
         print(f"Serving at http://localhost:{PORT}")
-        sys.stdout.flush() # Ensure output is visible
-        httpd.serve_forever()
+        sys.stdout.flush() 
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            httpd.server_close()
 
 if __name__ == "__main__":
     run_server()
